@@ -279,6 +279,10 @@ def _map(path, rows, im, pre, title, vmax):
         p1 = (int((r["x"] + WIN) * s) - 1, int((r["y"] + WIN) * s) - 1)
         cv2.rectangle(canvas, p0, p1, col, -1)
     canvas = cv2.addWeighted(canvas, 0.55, cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), 0.45, 0)
+    f = 2048.0 / max(canvas.shape[:2])
+    if f < 1:
+        canvas = cv2.resize(canvas, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
+    canvas = cv2.copyMakeBorder(canvas, 56, 0, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
     bar = cv2.applyColorMap(np.tile(np.linspace(0, 255, 256).astype(np.uint8), (16, 1)), cv2.COLORMAP_TURBO)
     canvas[8:24, 8:264] = bar
     cv2.putText(canvas, f"{title}: 0 .. {vmax:g}+ (grey = no confident match)", (8, 44), cv2.FONT_HERSHEY_SIMPLEX,
