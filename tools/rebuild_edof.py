@@ -22,9 +22,11 @@ The builder's flat-field is left out on purpose: it changes intensities, not geo
 usage: rebuild_edof.py SLICE_DIR --image_id ID --out DIR [--name_filter RE] [--source auto|recon|phases]
 """
 import argparse
+import faulthandler
 import json
 import os
 import re
+import signal
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -162,6 +164,7 @@ def main():
     ap.add_argument("--no_prefetch", action="store_true", help="read strips one at a time (less memory)")
     ap.add_argument("--tmp", default=None, help="scratch dir for the float canvases (default OUT/.tmp)")
     a = ap.parse_args()
+    faulthandler.register(signal.SIGUSR1, all_threads=True)       # `kill -USR1 <pid>` prints every stack to stderr
     t0 = time.time()
     cv2.setNumThreads(4)
     raw = discover(a.slice_dir, a.name_filter)

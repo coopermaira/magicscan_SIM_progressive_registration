@@ -264,6 +264,7 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
         Mg[e], _ = _scatter([m[e] for m in meas if e in m], ny, nx)
         nconf[f"{E[e][0]}-{E[e][1]}"] = int(np.isfinite(Mg[e, ..., 0]).sum())
     t_meas = time.time() - t0
+    log(f"    register[pearson]: measured {len(E)} pairs on {len(blocks)} blocks in {t_meas:.0f}s")
     # per-edge statistics before registration: shift size and stretch (the misalignment as acquired)
     edge_stats = {}
     for e, (a_, b_, kind) in enumerate(E):
@@ -277,7 +278,9 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
                                         stretch_y_median_pct=round(float(np.nanmedian(f[:, 8])) * 100, 4) if len(f) else None)
 
     # 3. joint solve, 4. clean
+    ts = time.time()
     U, closure = _solve(Mg, E, 2 * n, ref)
+    log(f"    register[pearson]: joint solve {ny}x{nx} nodes in {time.time() - ts:.0f}s")
     fields, valid = np.zeros_like(U), np.zeros(U.shape[:3], bool)
     for p in range(2 * n):
         fields[p], valid[p] = (np.zeros((ny, nx, 2), np.float32), np.ones((ny, nx), bool)) if p == ref \

@@ -19,6 +19,7 @@ IMG=${MSPROG_IMAGE:-$USER/msprog:v1}
 mkdir -p "$OUT"
 run() {
   srun --ntasks=1 docker run --rm --user "$(id -u):$(id -g)" --ipc=host \
+    -e OPENBLAS_NUM_THREADS=1 -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e PYTHONUNBUFFERED=1 \
     -v /mnt/arpa-h-data:/mnt/arpa-h-data:ro -v "$REPO":/repo:ro -v "$OUT":"$OUT" -w /repo "$IMG" python "$@"
 }
 while IFS=$'\t' read -r ID DIR FILT EXTRA; do
