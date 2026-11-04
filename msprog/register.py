@@ -23,6 +23,7 @@ Method, one strip of N planes x 2 channels = 2N passes:
 Shift convention (same as ms_register.py): registered = plane(y + dy, x + dx), i.e. (dy, dx) is where the content
 of the pass sits relative to the reference.
 """
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -297,6 +298,10 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
         log(f"    register[pearson]: non-finite field values replaced by 0 in passes {bad}")
         for p in bad:
             fields[p] = np.nan_to_num(fields[p], nan=0.0, posinf=0.0, neginf=0.0)
+
+    if os.environ.get("MSPROG_DUMP_DIR"):          # debugging aid: the fields that are about to be applied
+        np.savez(os.path.join(os.environ["MSPROG_DUMP_DIR"], f"fields_{int(time.time())}.npz"), yc=yc, xc=xc,
+                 fields=fields, U=U, H=H, W=W)
 
     # 5. warp every pass except the reference
     def _w(p):
