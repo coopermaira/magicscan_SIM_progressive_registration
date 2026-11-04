@@ -132,12 +132,15 @@ def load_plane(entry, src):
         x = np.asarray(_arr(entry["recon"]), np.float32)
         _drop_cache(entry["recon"])
     else:
+        arrs = [_arr(entry["phases"][k]) for k in sorted(entry["phases"])]
+        h = min(a.shape[0] for a in arrs)                # phase frames can differ by a row
+        w = min(a.shape[1] for a in arrs)
         x = None
-        for k in sorted(entry["phases"]):
-            a = np.asarray(_arr(entry["phases"][k]), np.float32)
+        for k, a in zip(sorted(entry["phases"]), arrs):
+            a = np.asarray(a[:h, :w], np.float32)
             _drop_cache(entry["phases"][k])
             x = a * a if x is None else x + a * a
-        np.sqrt(x / len(entry["phases"]), out=x)
+        np.sqrt(x / len(arrs), out=x)
     return E.destripe(np.clip(x, 0, None))
 
 

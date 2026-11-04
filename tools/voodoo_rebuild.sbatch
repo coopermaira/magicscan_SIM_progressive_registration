@@ -17,10 +17,16 @@ SLIDES=$1; OUT=$2
 REPO=${MSPROG_REPO:-$SLURM_SUBMIT_DIR}     # submit from the repo root (SLURM runs a copy of this script)
 IMG=${MSPROG_IMAGE:-$USER/msprog:v1}
 mkdir -p "$OUT"
+# docker containers run outside the job's process tree: name them and stop them if the job is cancelled
+N=0
+cleanup() { docker ps -q --filter "name=msprog-${SLURM_JOB_ID}-" | xargs -r docker kill >/dev/null; exit 143; }
+trap cleanup TERM INT
 run() {
-  srun --ntasks=1 docker run --rm --user "$(id -u):$(id -g)" --ipc=host \
+  N=$((N + 1))
+  docker run --rm --name "msprog-${SLURM_JOB_ID}-${N}" --user "$(id -u):$(id -g)" --ipc=host \
     -e OPENBLAS_NUM_THREADS=1 -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e PYTHONUNBUFFERED=1 \
-    -v /mnt/arpa-h-data:/mnt/arpa-h-data:ro -v "$REPO":/repo:ro -v "$OUT":"$OUT" -w /repo "$IMG" python "$@"
+    -v /mnt/arpa-h-data:/mnt/arpa-h-data:ro -v "$REPO":/repo:ro -v "$OUT":"$OUT" -w /repo "$IMG" python "$@" &
+  wait $!
 }
 while IFS=$'\t' read -r ID DIR FILT EXTRA; do
   [ -z "$ID" ] || [ "${ID:0:1}" = "#" ] && continue
