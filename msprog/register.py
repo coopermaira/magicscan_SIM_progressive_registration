@@ -220,8 +220,10 @@ def warp(img, yc, xc, G, band_rows=2048):
         mgy = np.ascontiguousarray(np.broadcast_to(gy, (y1 - y0, W)), np.float32)
         dy = np.nan_to_num(np.clip(cv2.remap(Gy, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX))
         dx = np.nan_to_num(np.clip(cv2.remap(Gx, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX))
-        s0 = int(max(0, np.floor(y0 + dy.min()) - 3))
-        s1 = int(min(H, np.ceil(y1 + dy.max()) + 3))
+        # source rows; a shift can point past the end of the plane, so keep at least one row (the border mode
+        # fills the rest) - an empty source makes cv2.remap with BORDER_REFLECT loop forever
+        s0 = int(min(max(0, np.floor(y0 + dy.min()) - 3), H - 1))
+        s1 = int(max(min(H, np.ceil(y1 + dy.max()) + 3), s0 + 1))
         map_x = np.arange(W, dtype=np.float32)[None, :] + dx
         map_y = rows[:, None] + dy - s0
         src = np.ascontiguousarray(img[s0:s1], np.float32)

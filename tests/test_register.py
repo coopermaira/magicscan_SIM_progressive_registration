@@ -45,7 +45,23 @@ def test_clean_and_warp_never_produce_nan():
     assert np.isfinite(res).all()
 
 
+def test_warp_shift_past_the_end():
+    """A shift larger than the rows left at the end of the plane (gave an empty source slice and a hang)."""
+    import signal
+    img = np.random.default_rng(1).random((3000, 1200)).astype(np.float32)
+    G = np.zeros((11, 4, 2), np.float32)
+    G[..., 0] = 330.0
+    signal.alarm(60)
+    try:
+        out = R.warp(img, 128.0 + 256 * np.arange(11), 168.0 + 256 * np.arange(4), G)
+    finally:
+        signal.alarm(0)
+    assert out.shape == img.shape and np.isfinite(out).all()
+    assert np.allclose(out[:2000, 10:-10], img[330:2330, 10:-10], atol=1e-4)
+
+
 if __name__ == "__main__":
+    test_warp_shift_past_the_end()
     test_clean_and_warp_never_produce_nan()
     test_recovers_known_fields()
     print("ok")
