@@ -1,0 +1,31 @@
+#!/bin/bash
+# Rebuild + compare MagicScan slides on voodoo (CPU only).
+#   sbatch tools/voodoo_rebuild.sbatch SLIDES_TSV OUT_DIR
+# SLIDES_TSV: image_id <TAB> slice dir under /mnt/arpa-h-data <TAB> optional name filter
+#SBATCH --job-name=ms-rebuild
+#SBATCH --output=/mnt/results/%u/ms-rebuild-%j.out
+#SBATCH --error=/mnt/results/%u/ms-rebuild-%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=300G
+#SBATCH --time=24:00:00
+set -uo pipefail
+SLIDES=$1; OUT=$2
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+IMG=${MSPROG_IMAGE:-$USER/msprog:v1}
+mkdir -p "$OUT"
+run() {
+  srun --ntasks=1 docker run --rm --user "$(id -u):$(id -g)" --ipc=host \
+    -v /mnt/arpa-h-data:/mnt/arpa-h-data:ro -v "$REPO":/repo:ro -v "$OUT":"$OUT" -w /repo "$IMG" python "$@"
+}
+while IFS=$'\t' read -r ID DIR FILT; do
+  [ -z "$ID" ] || [ "${ID:0:1}" = "#" ] && continue
+  echo "=== $ID $(date)"
+  ARGS=("tools/rebuild_edof.py" "$DIR" --image_id "$ID" --out "$OUT/$ID" --workers 32)
+  [ -n "${FILT:-}" ] && ARGS+=(--name_filter "$FILT")
+  run "${ARGS[@]}" || { echo "REBUILD FAILED $ID"; continue; }
+  A=$(awk -F'\t' '$1=="off"{print $2}' "$OUT/$ID/specs.tsv"); B=$(awk -F'\t' '$1=="pearson"{print $2}' "$OUT/$ID/specs.tsv")
+  run edof_align_check.py compare "$A" "$B" --out "$OUT/$ID/compare" --workers 32 || echo "CHECK FAILED $ID"
+done < "$SLIDES"
+echo "ALL DONE $(date)"

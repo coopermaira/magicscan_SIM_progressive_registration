@@ -84,3 +84,21 @@ def thumbnail(path, max_side=4096):
         rows.append(band[::step, ::step])
     a = np.concatenate(rows, 0)
     return a, a.shape[1] / r.w
+
+
+def write_pyramid(path, a, n_levels=2, tile=512, workers=16):
+    """2-D uint16 array (or memmap) -> tiled, deflate-compressed BigTIFF with n_levels 1/4-step sub-resolutions."""
+    import cv2
+    levels, cur = [], a
+    for _ in range(n_levels):
+        rows = []
+        for y in range(0, cur.shape[0], 4096):
+            b = np.asarray(cur[y:y + 4096])
+            rows.append(cv2.resize(b, (max(1, b.shape[1] // 4), max(1, b.shape[0] // 4)), interpolation=cv2.INTER_AREA))
+        cur = np.concatenate(rows, 0)
+        levels.append(cur)
+    with tifffile.TiffWriter(path, bigtiff=True) as tw:
+        tw.write(a, tile=(tile, tile), compression="zlib", subifds=len(levels), photometric="minisblack",
+                 maxworkers=workers)
+        for lv in levels:
+            tw.write(lv, tile=(tile, tile), compression="zlib", subfiletype=1, photometric="minisblack")

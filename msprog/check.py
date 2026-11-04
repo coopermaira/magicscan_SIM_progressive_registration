@@ -9,6 +9,11 @@ Metrics (1,024 px windows):
             the image across the seam / the same across matched in-plane lines. 1 = seamless; fusing misaligned
             planes cuts structures at the seam and lowers it. Flat below ~2 px of seam offset, clear from ~4 px.
   sharpness Tenengrad focus measure of the nuclear EDOF (guards against registration that blurs).
+  strips    at every boundary where two scan strips abut (x = k * strip width): vertical offset of the image
+            across the boundary (Pearson of the columns either side, +-48 px) and its continuity (correlation
+            across the boundary at zero offset / the same between columns inside the strip), per channel.
+The seam and strip measures are made on both channels, so a discontinuity shared by both channels (channels
+still aligned to each other) shows up even when the channel offset is small.
 """
 import glob
 import json
@@ -29,6 +34,8 @@ RATIO_MAX = 0.9           # second / first peak at 1/4 res (ambiguity)
 SEAM_D = (1.5, 2.5)       # px either side of a seam
 SEAM_CTRL = 10            # control lines this far into each plane
 SEAM_MIN_PTS = 60
+STRIP_W = 11680           # MagicScan strip width (px)
+BOUND_S = 48              # vertical search across a strip boundary
 
 
 # ---------------------------------------------------------------- inputs
@@ -181,8 +188,30 @@ def seam_index(img, labels_q, oy=0.0, ox=0.0, rng=None):
     return cs / cc, len(pts)
 
 
+def _profile(a, c0, c1):
+    p = a[:, c0:c1].mean(1, dtype=np.float32)[:, None]
+    return cv2.GaussianBlur(p, (1, 0), sigmaX=0.1, sigmaY=1.5) - cv2.GaussianBlur(p, (1, 0), sigmaX=0.1, sigmaY=12)
+
+
+def boundary(reader, xb, y):
+    """Offset across the strip boundary at column xb for rows y .. y + WIN. Returns dict(dy, r, r0, ctrl) or None.
+    Columns xb-3..xb-1 (left) vs xb..xb+2 (right); control = columns xb-9..xb-7 vs xb-6..xb-4 inside the strip."""
+    S = BOUND_S
+    a = reader.region(y - S, xb - 12, WIN + 2 * S, 24)
+    L, R = _profile(a, 9, 12), _profile(a, 12, 15)
+    C1, C2 = _profile(a, 3, 6), _profile(a, 6, 9)
+    t = L[S:S + WIN]
+    if t.std() < 1e-6 or R.std() < 1e-6:
+        return None
+    r = cv2.matchTemplate(R, t, cv2.TM_CCOEFF_NORMED)
+    py, _, v, edge = P.peak(r)
+    c1, c2 = C1[S:S + WIN, 0], C2[S:S + WIN, 0]
+    ctrl = float(np.corrcoef(c1, c2)[0, 1]) if c1.std() > 1e-6 and c2.std() > 1e-6 else np.nan
+    return dict(dy=float(py - S), r=float(v), r0=float(r[S, 0]), ctrl=ctrl, edge=bool(edge))
+
+
 # ---------------------------------------------------------------- one image
-def measure(im, windows=None, workers=16, max_windows=600, log=print):
+def measure(im, windows=None, workers=16, max_windows=600, log=print, strip_w=STRIP_W):
     rn, rs = TiledReader(im["nuc"]), TiledReader(im["stro"])
     H, W = rn.h, rn.w
     if (rs.h, rs.w) != (H, W):
@@ -213,11 +242,32 @@ def measure(im, windows=None, workers=16, max_windows=600, log=print):
             if q.shape == (WIN // 4, WIN // 4):
                 oy, ox = 4 * (y // 4) - y, 4 * (x // 4) - x
                 row["seam"], row["seam_pts"] = seam_index(img, q, oy, ox)
+                row["seam_stro"], _ = seam_index(rs.region(y, x, WIN, WIN), q, oy, ox)
         return row
+
+    # strip boundaries crossing tissue rows of the window grid
+    bjobs = []
+    if strip_w and W >= 2 * strip_w:
+        for xb in range(strip_w, W - 16, strip_w):
+            ys = sorted({y for y, x in windows if x - WIN <= xb <= x + 2 * WIN})
+            bjobs += [(xb, y) for y in ys if y - BOUND_S >= 0 and y + WIN + BOUND_S <= H]
+
+    def bone(job):
+        xb, y = job
+        cv2.setNumThreads(1)
+        out = dict(xb=xb, y=y)
+        for tag, rd in (("nuc", rn), ("stro", rs)):
+            b = boundary(rd, xb, y)
+            ok = b is not None and b["r"] >= 0.3 and not b["edge"] and np.isfinite(b["ctrl"]) and b["ctrl"] > 0.05
+            out[f"{tag}_ok"] = bool(ok)
+            out[f"{tag}_dy"] = b["dy"] if b else np.nan
+            out[f"{tag}_cont"] = b["r0"] / b["ctrl"] if ok else np.nan
+        return out
 
     with ThreadPoolExecutor(workers) as ex:
         rows = list(ex.map(one, windows))
-    return rows, (H, W)
+        brows = list(ex.map(bone, bjobs))
+    return rows, (H, W), brows
 
 
 def _dist(rows, pre, mpp):
@@ -234,32 +284,62 @@ def _dist(rows, pre, mpp):
     return out
 
 
-def summarize(im, rows, shape, mpp=0.7):
-    seam = np.array([r["seam"] for r in rows if np.isfinite(r.get("seam", np.nan))])
+def _seam(rows, key):
+    v = np.array([r[key] for r in rows if np.isfinite(r.get(key, np.nan))])
+    return (dict(n_windows=int(len(v)), median=round(float(np.median(v)), 3),
+                 p10=round(float(np.percentile(v, 10)), 3)) if len(v) else None)
+
+
+def _strips(brows):
+    if not brows:
+        return None
+    out = dict(n_boundary_windows=len(brows))
+    for tag in ("nuc", "stro"):
+        ok = [b for b in brows if b[f"{tag}_ok"]]
+        d = np.abs(np.array([b[f"{tag}_dy"] for b in ok]))
+        c = np.array([b[f"{tag}_cont"] for b in ok])
+        out[tag] = dict(n_accepted=len(ok))
+        if len(ok):
+            out[tag].update(median_dy_px=round(float(np.median(d)), 2), p90_dy_px=round(float(np.percentile(d, 90)), 2),
+                            frac_gt_2px=round(float((d > 2).mean()), 3),
+                            continuity_median=round(float(np.median(c)), 3))
+    both = [b for b in brows if b["nuc_ok"] and b["stro_ok"]]
+    if both:
+        out["nuc_minus_stro_dy_median_px"] = round(float(np.median([abs(b["nuc_dy"] - b["stro_dy"]) for b in both])), 2)
+    return out
+
+
+def summarize(im, rows, shape, mpp=0.7, brows=None):
     sh = np.array([r["sharp"] for r in rows])
     return dict(image=im["id"], files={k: im.get(k) for k in ("nuc", "stro", "z_top", "z_bot", "zmap", "patches_h5")},
                 size=list(shape), mpp=mpp, n_windows=len(rows),
                 channel=_dist(rows, "chan", mpp), planes=_dist(rows, "plane", mpp),
-                seam=(dict(n_windows=int(len(seam)), median=round(float(np.median(seam)), 3),
-                           p10=round(float(np.percentile(seam, 10)), 3)) if len(seam) else None),
+                seam=_seam(rows, "seam"), seam_stro=_seam(rows, "seam_stro"), strips=_strips(brows),
                 sharpness=dict(median=round(float(np.median(sh)), 5)) if len(sh) else None)
 
 
 # ---------------------------------------------------------------- outputs
 COLS = ["y", "x", "chan_dy", "chan_dx", "chan_r", "chan_ratio4", "chan_ok", "plane_dy", "plane_dx", "plane_r",
-        "plane_ratio4", "plane_ok", "seam", "seam_pts", "sharp"]
+        "plane_ratio4", "plane_ok", "seam", "seam_stro", "seam_pts", "sharp"]
+BCOLS = ["xb", "y", "nuc_dy", "nuc_cont", "nuc_ok", "stro_dy", "stro_cont", "stro_ok"]
 
 
-def write_outputs(out_dir, s, rows, im):
+def _tsv(path, rows, cols):
+    with open(path, "w") as f:
+        f.write("\t".join(cols) + "\n")
+        for r in rows:
+            f.write("\t".join("" if r.get(c) is None or (isinstance(r.get(c), float) and np.isnan(r[c]))
+                              else (f"{r[c]:.4f}" if isinstance(r[c], float) else str(r[c])) for c in cols) + "\n")
+
+
+def write_outputs(out_dir, s, rows, im, brows=None):
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.join(out_dir, s["image"])
     with open(f"{base}_align.json", "w") as f:
         json.dump(s, f, indent=1)
-    with open(f"{base}_align_windows.tsv", "w") as f:
-        f.write("\t".join(COLS) + "\n")
-        for r in rows:
-            f.write("\t".join("" if r.get(c) is None or (isinstance(r.get(c), float) and np.isnan(r[c]))
-                              else (f"{r[c]:.4f}" if isinstance(r[c], float) else str(r[c])) for c in COLS) + "\n")
+    _tsv(f"{base}_align_windows.tsv", rows, COLS)
+    if brows:
+        _tsv(f"{base}_align_strip_boundaries.tsv", brows, BCOLS)
     _map(f"{base}_align_channel.png", rows, im, "chan", "470-528 offset (px)", 10.0)
     if s["planes"]:
         _map(f"{base}_align_planes.png", rows, im, "plane", "top-bottom plane offset (px)", 20.0)
@@ -310,12 +390,25 @@ def compare(a, b):
             out.append((f"{lab} {stat}", A[stat], B[stat], round(d, 3),
                         "same" if abs(d) <= tol else ("better" if d < 0 else "worse")))
         out.append((f"{lab} accepted windows", A["n_accepted"], B["n_accepted"], B["n_accepted"] - A["n_accepted"], ""))
-    if a.get("seam") and b.get("seam"):
-        d = b["seam"]["median"] - a["seam"]["median"]
-        out.append(("seam continuity median", a["seam"]["median"], b["seam"]["median"], round(d, 3),
-                    "same" if abs(d) <= 0.01 else ("better" if d > 0 else "worse")))
-    else:
-        out.append(("seam continuity", "-", "-", "-", "needs a z-map for both"))
+    for key, lab in (("seam", "seam continuity 470"), ("seam_stro", "seam continuity 528")):
+        if a.get(key) and b.get(key):
+            d = b[key]["median"] - a[key]["median"]
+            out.append((f"{lab} median", a[key]["median"], b[key]["median"], round(d, 3),
+                        "same" if abs(d) <= 0.01 else ("better" if d > 0 else "worse")))
+        else:
+            out.append((lab, "-", "-", "-", "needs a z-map for both"))
+    sa, sb = a.get("strips") or {}, b.get("strips") or {}
+    for tag, lab in (("nuc", "strip boundary 470"), ("stro", "strip boundary 528")):
+        A, B = sa.get(tag) or {}, sb.get(tag) or {}
+        if "median_dy_px" in A and "median_dy_px" in B:
+            for stat, tol, lower in (("median_dy_px", 0.1, True), ("p90_dy_px", 0.2, True),
+                                     ("continuity_median", 0.01, False)):
+                d = B[stat] - A[stat]
+                good = d < 0 if lower else d > 0
+                out.append((f"{lab} {stat}", A[stat], B[stat], round(d, 3),
+                            "same" if abs(d) <= tol else ("better" if good else "worse")))
+        else:
+            out.append((lab, "-", "-", "-", "no strip boundaries measured in both"))
     if a.get("sharpness") and b.get("sharpness"):
         ra = b["sharpness"]["median"] / a["sharpness"]["median"]
         out.append(("sharpness ratio B/A", a["sharpness"]["median"], b["sharpness"]["median"], round(ra, 3),

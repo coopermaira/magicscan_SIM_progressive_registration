@@ -147,25 +147,13 @@ class _Gray:
 
     def write(self, stem, eff_h, chans):
         import cv2
-        import tifffile
+        from .tiffio import write_pyramid
         outs = []
         for tag, ch in zip(("h", "e"), chans):
             if tag not in self.mm:
                 continue
-            a = self.mm[tag][:eff_h]
-            levels, cur = [], a
-            for _ in range(2):
-                rows = []
-                for y in range(0, cur.shape[0], 4096):
-                    b = np.asarray(cur[y:y + 4096])
-                    rows.append(cv2.resize(b, (b.shape[1] // 4, max(1, b.shape[0] // 4)), interpolation=cv2.INTER_AREA))
-                cur = np.concatenate(rows, 0)
-                levels.append(cur)
             p = os.path.join(self.dir, f"{stem}_{ch}.tif")
-            with tifffile.TiffWriter(p, bigtiff=True) as tw:
-                tw.write(a, tile=(512, 512), compression="zlib", subifds=len(levels), photometric="minisblack")
-                for lv in levels:
-                    tw.write(lv, tile=(512, 512), compression="zlib", subfiletype=1, photometric="minisblack")
+            write_pyramid(p, self.mm[tag][:eff_h])
             outs.append(p)
             del self.mm[tag]
             os.remove(os.path.join(self.dir, f".tmp_{tag}.npy"))

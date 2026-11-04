@@ -24,10 +24,11 @@ def cmd_run(a):
         try:
             im = C.resolve(spec)
             wins = C.read_windows(a.windows) if a.windows else None
-            rows, shape = C.measure(im, wins, a.workers, a.max_windows)
-            s = C.summarize(im, rows, shape, a.mpp)
-            C.write_outputs(a.out, s, rows, im)
-            print(json.dumps({k: s[k] for k in ("image", "n_windows", "channel", "planes", "seam", "sharpness")}))
+            rows, shape, brows = C.measure(im, wins, a.workers, a.max_windows, strip_w=a.strip_width)
+            s = C.summarize(im, rows, shape, a.mpp, brows)
+            C.write_outputs(a.out, s, rows, im, brows)
+            print(json.dumps({k: s[k] for k in ("image", "n_windows", "channel", "planes", "seam", "seam_stro",
+                                                "strips", "sharpness")}))
         except Exception as e:                       # keep going over a list of images
             print(f"ERROR {spec}: {type(e).__name__}: {e}", file=sys.stderr)
             rc = 1
@@ -36,14 +37,14 @@ def cmd_run(a):
 
 def cmd_compare(a):
     ia, ib = C.resolve(a.a), C.resolve(a.b)
-    ra, shape_a = C.measure(ia, None, a.workers, a.max_windows)
-    rb, shape_b = C.measure(ib, [(r["y"], r["x"]) for r in ra], a.workers)
+    ra, shape_a, ba = C.measure(ia, None, a.workers, a.max_windows, strip_w=a.strip_width)
+    rb, shape_b, bb = C.measure(ib, [(r["y"], r["x"]) for r in ra], a.workers, strip_w=a.strip_width)
     if shape_a != shape_b:
         print(f"note: image sizes differ ({shape_a} vs {shape_b}); windows are matched by position", file=sys.stderr)
-    sa, sb = C.summarize(ia, ra, shape_a, a.mpp), C.summarize(ib, rb, shape_b, a.mpp)
+    sa, sb = C.summarize(ia, ra, shape_a, a.mpp, ba), C.summarize(ib, rb, shape_b, a.mpp, bb)
     oa, ob = os.path.join(a.out, "A"), os.path.join(a.out, "B")
-    C.write_outputs(oa, sa, ra, ia)
-    C.write_outputs(ob, sb, rb, ib)
+    C.write_outputs(oa, sa, ra, ia, ba)
+    C.write_outputs(ob, sb, rb, ib, bb)
     rows = C.compare(sa, sb)
     w = max(len(r[0]) for r in rows)
     lines = [f"A = {a.a}", f"B = {a.b}", "", f"{'metric':{w}s}  {'A':>10s}  {'B':>10s}  {'B-A':>8s}  verdict"]
@@ -78,6 +79,7 @@ def main():
     for p in (r, c):
         p.add_argument("--out", required=True)
         p.add_argument("--max_windows", type=int, default=600)
+        p.add_argument("--strip_width", type=int, default=11680, help="scan strip width in px (0 = no strip check)")
     for p in (r, c, t):
         p.add_argument("--workers", type=int, default=16)
         p.add_argument("--mpp", type=float, default=0.7)

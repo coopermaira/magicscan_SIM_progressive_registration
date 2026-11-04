@@ -40,9 +40,9 @@ def test_end_to_end_tiled_tiff():
             tifffile.imwrite(os.path.join(d, name), (a * 2000).astype(np.uint16), tile=(512, 512),
                              compression="zlib")
         im = C.resolve(f"{d}/n.tif,{d}/s.tif")
-        rows, shape = C.measure(im, workers=4, log=print)
-        s = C.summarize(im, rows, shape)
-        C.write_outputs(os.path.join(d, "out"), s, rows, im)
+        rows, shape, brows = C.measure(im, workers=4, log=print)
+        s = C.summarize(im, rows, shape, brows=brows)
+        C.write_outputs(os.path.join(d, "out"), s, rows, im, brows)
         print(s["channel"])
         assert s["channel"]["n_accepted"] >= 0.8 * s["channel"]["n_windows"]
         assert abs(s["channel"]["median_px"] - 5.0) < 0.3
@@ -64,7 +64,21 @@ def test_seam_index_falls_with_misalignment():
     assert vals[3] <= vals[0] - 0.1
 
 
+def test_strip_boundary_offset():
+    img = synth.texture(4096, 1024, 5)
+    for dy in (0, 3, -7):
+        moved = S.shifted(img, dy, 0)
+        joined = np.concatenate([img[:, :512], moved[:, 512:]], 1)       # strips abut at x = 512
+        b = C.boundary(type("R", (), {"region": lambda self, y, x, h, w: joined[y:y + h, x:x + w].copy()})(),
+                       512, 1024)
+        print(dy, b)
+        assert abs(b["dy"] - dy) < 0.5, (dy, b)
+        if dy == 0:
+            assert b["r0"] / b["ctrl"] > 0.8
+
+
 if __name__ == "__main__":
+    test_strip_boundary_offset()
     test_match_window_recovers_shift()
     test_seam_index_falls_with_misalignment()
     test_end_to_end_tiled_tiff()
