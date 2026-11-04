@@ -1,10 +1,10 @@
 #!/bin/bash
 # Rebuild + compare MagicScan slides on voodoo (CPU only).
-#   sbatch tools/voodoo_rebuild.sbatch SLIDES_TSV OUT_DIR
+#   sbatch -o LOGDIR/ms-rebuild-%j.out -e LOGDIR/ms-rebuild-%j.err tools/voodoo_rebuild.sbatch SLIDES_TSV OUT_DIR
 # SLIDES_TSV: image_id <TAB> slice dir under /mnt/arpa-h-data <TAB> optional name filter
 #SBATCH --job-name=ms-rebuild
-#SBATCH --output=/mnt/results/%u/ms-rebuild-%j.out
-#SBATCH --error=/mnt/results/%u/ms-rebuild-%j.err
+#SBATCH --output=ms-rebuild-%j.out
+#SBATCH --error=ms-rebuild-%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
