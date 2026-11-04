@@ -1,6 +1,6 @@
 #!/bin/bash
 # Rebuild + compare MagicScan slides on voodoo (CPU only).
-#   sbatch -o LOGDIR/ms-rebuild-%j.out -e LOGDIR/ms-rebuild-%j.err tools/voodoo_rebuild.sbatch SLIDES_TSV OUT_DIR
+#   cd <repo>; sbatch -o LOGDIR/ms-rebuild-%j.out -e LOGDIR/ms-rebuild-%j.err tools/voodoo_rebuild.sbatch SLIDES_TSV OUT_DIR
 # SLIDES_TSV: image_id <TAB> slice dir under /mnt/arpa-h-data <TAB> optional name filter
 #SBATCH --job-name=ms-rebuild
 #SBATCH --output=ms-rebuild-%j.out
@@ -12,7 +12,7 @@
 #SBATCH --time=24:00:00
 set -uo pipefail
 SLIDES=$1; OUT=$2
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+REPO=${MSPROG_REPO:-$SLURM_SUBMIT_DIR}     # submit from the repo root (SLURM runs a copy of this script)
 IMG=${MSPROG_IMAGE:-$USER/msprog:v1}
 mkdir -p "$OUT"
 run() {
