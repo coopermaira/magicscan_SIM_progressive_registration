@@ -33,6 +33,19 @@ def test_recovers_known_fields():
     assert rep["residual_plane_um"]["median"] < 1.0 and rep["residual_channel_um"]["median"] < 1.0, rep
 
 
+def test_clean_and_warp_never_produce_nan():
+    F = np.full((6, 6, 2), np.nan, np.float32)
+    F[0, 0] = (50, 50)
+    F[5, 5] = (-50, -50)                   # isolated, mutually inconsistent nodes
+    out, v = R._clean(F)
+    assert np.isfinite(out).all()
+    img = np.random.default_rng(0).random((600, 600)).astype(np.float32)
+    G = np.full((3, 3, 2), np.nan, np.float32)
+    res = R.warp(img, np.array([100., 300., 500.]), np.array([100., 300., 500.]), G)
+    assert np.isfinite(res).all()
+
+
 if __name__ == "__main__":
+    test_clean_and_warp_never_produce_nan()
     test_recovers_known_fields()
     print("ok")

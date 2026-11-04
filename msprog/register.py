@@ -182,6 +182,8 @@ def _clean(F):
                 med[i, j] = np.median(nb, axis=0)
     dev = np.hypot(*(F - med).transpose(2, 0, 1))
     v &= ~(np.isfinite(dev) & (dev > OUTLIER_PX))
+    if v.sum() == 0:                       # every node rejected: no correction for this pass
+        return np.zeros_like(F), v
     out = np.zeros_like(F)
     w = v.astype(np.float32)
     for c in range(2):
@@ -195,7 +197,7 @@ def _clean(F):
             num = cv2.GaussianBlur(val, (0, 0), sigmaX=sx, sigmaY=sy, borderType=cv2.BORDER_REPLICATE)
             den = cv2.GaussianBlur(w, (0, 0), sigmaX=sx, sigmaY=sy, borderType=cv2.BORDER_REPLICATE)
             f = np.where(np.isnan(f) & (den > 1e-3), num / np.maximum(den, 1e-6), f)
-        f = np.nan_to_num(f, nan=float(np.nanmedian(F[v, c])))
+        f = np.nan_to_num(f, nan=float(np.median(F[v, c])))
         out[..., c] = np.where(v, F[..., c], f)     # measured nodes are kept; smoothing only fills holes
     return out, v
 
@@ -215,8 +217,8 @@ def warp(img, yc, xc, G, band_rows=2048):
         gy = ((rows - yc[0]) / sy)[:, None]
         mgx = np.ascontiguousarray(np.broadcast_to(gx, (y1 - y0, W)), np.float32)
         mgy = np.ascontiguousarray(np.broadcast_to(gy, (y1 - y0, W)), np.float32)
-        dy = np.clip(cv2.remap(Gy, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX)
-        dx = np.clip(cv2.remap(Gx, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX)
+        dy = np.nan_to_num(np.clip(cv2.remap(Gy, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX))
+        dx = np.nan_to_num(np.clip(cv2.remap(Gx, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX))
         s0 = int(max(0, np.floor(y0 + dy.min()) - 3))
         s1 = int(min(H, np.ceil(y1 + dy.max()) + 3))
         map_x = np.arange(W, dtype=np.float32)[None, :] + dx
@@ -289,6 +291,12 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
     for p in range(2 * n):
         fields[p], valid[p] = (np.zeros((ny, nx, 2), np.float32), np.ones((ny, nx), bool)) if p == ref \
             else _clean(U[p])
+
+    bad = {p: int((~np.isfinite(fields[p])).sum()) for p in range(2 * n) if not np.isfinite(fields[p]).all()}
+    if bad:
+        log(f"    register[pearson]: non-finite field values replaced by 0 in passes {bad}")
+        for p in bad:
+            fields[p] = np.nan_to_num(fields[p], nan=0.0, posinf=0.0, neginf=0.0)
 
     # 5. warp every pass except the reference
     def _w(p):
