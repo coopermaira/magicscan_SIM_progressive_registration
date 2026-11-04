@@ -36,6 +36,7 @@ MPP = 0.7
 BLOCK = 4096              # rows per work unit (4 chunks)
 DROP_PX = 1.5             # joint solve: drop the worst edge while its residual exceeds this
 OUTLIER_PX = 3.0          # field cleaning: deviation from the 3x3 median of valid neighbours
+MAX_SHIFT_PX = 400.0      # larger shifts are failed matches (largest real plane shift seen: ~150 px)
 SIGMA_Y, SIGMA_X = 0.7, 1.0
 RESID_WARN_UM = 1.0
 VERIFY_EVERY = 4
@@ -90,6 +91,8 @@ def _scatter(meas, ny, nx):
         j = (blk[:, 1] * P.NSUB + blk[:, 3]).astype(int)
         ok = (i < ny) & (j < nx)
         M[i[ok], j[ok], 0], M[i[ok], j[ok], 1], R[i[ok], j[ok]] = blk[ok, 4], blk[ok, 5], blk[ok, 6]
+    big = np.hypot(M[..., 0], M[..., 1]) > MAX_SHIFT_PX
+    M[big] = np.nan
     return M, R
 
 
@@ -212,8 +215,8 @@ def warp(img, yc, xc, G, band_rows=2048):
         gy = ((rows - yc[0]) / sy)[:, None]
         mgx = np.ascontiguousarray(np.broadcast_to(gx, (y1 - y0, W)), np.float32)
         mgy = np.ascontiguousarray(np.broadcast_to(gy, (y1 - y0, W)), np.float32)
-        dy = cv2.remap(Gy, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        dx = cv2.remap(Gx, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        dy = np.clip(cv2.remap(Gy, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX)
+        dx = np.clip(cv2.remap(Gx, mgx, mgy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE), -MAX_SHIFT_PX, MAX_SHIFT_PX)
         s0 = int(max(0, np.floor(y0 + dy.min()) - 3))
         s1 = int(min(H, np.ceil(y1 + dy.max()) + 3))
         map_x = np.arange(W, dtype=np.float32)[None, :] + dx
@@ -280,6 +283,7 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
     # 3. joint solve, 4. clean
     ts = time.time()
     U, closure = _solve(Mg, E, 2 * n, ref)
+    U[np.hypot(U[..., 0], U[..., 1]) > MAX_SHIFT_PX] = np.nan
     log(f"    register[pearson]: joint solve {ny}x{nx} nodes in {time.time() - ts:.0f}s")
     fields, valid = np.zeros_like(U), np.zeros(U.shape[:3], bool)
     for p in range(2 * n):
@@ -292,6 +296,8 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
     with ThreadPoolExecutor(min(workers, 2 * n)) as ex:
         reg = list(ex.map(_w, range(2 * n)))
     t_warp = time.time() - t0 - t_meas
+    log(f"    register[pearson]: warped in {t_warp:.0f}s; largest applied shift per pass (px) "
+        f"{[round(float(np.abs(fields[p]).max()), 1) for p in range(2 * n)]}")
 
     # 6. verification on the registered planes (subset of blocks)
     vb = blocks[::VERIFY_EVERY] or blocks[:1]
