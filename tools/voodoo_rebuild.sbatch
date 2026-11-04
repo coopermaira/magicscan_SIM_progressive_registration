@@ -26,6 +26,7 @@ while IFS=$'\t' read -r ID DIR FILT; do
   [ -n "${FILT:-}" ] && ARGS+=(--name_filter "$FILT")
   run "${ARGS[@]}" || { echo "REBUILD FAILED $ID"; continue; }
   A=$(awk -F'\t' '$1=="off"{print $2}' "$OUT/$ID/specs.tsv"); B=$(awk -F'\t' '$1=="pearson"{print $2}' "$OUT/$ID/specs.tsv")
-  run edof_align_check.py compare "$A" "$B" --out "$OUT/$ID/compare" --workers 32 || echo "CHECK FAILED $ID"
+  run edof_align_check.py compare "$A" "$B" --out "$OUT/$ID/compare" --workers 32 || { echo "CHECK FAILED $ID"; continue; }
+  run tools/preview_pair.py "$OUT/$ID/compare" --out "$OUT/$ID/preview" || echo "PREVIEW FAILED $ID"
 done < "$SLIDES"
 echo "ALL DONE $(date)"

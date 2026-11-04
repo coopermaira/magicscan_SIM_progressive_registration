@@ -38,6 +38,10 @@ def test_rebuild_and_compare():
         j = json.load(open(os.path.join(d, "cmp", "compare.json")))
         a, b = j["A"]["channel"], j["B"]["channel"]
         assert b["median_px"] < a["median_px"] and b["median_px"] < 1.0, (a, b)
+        r = subprocess.run([sys.executable, os.path.join(REPO, "tools", "preview_pair.py"), os.path.join(d, "cmp"),
+                            "--out", os.path.join(d, "prev")], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr[-3000:]
+        assert any(f.endswith("_crop00.jpg") for f in os.listdir(os.path.join(d, "prev")))
 
 
 if __name__ == "__main__":
