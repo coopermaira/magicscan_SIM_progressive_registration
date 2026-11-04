@@ -116,6 +116,11 @@ residuals, flags) plus the closure numbers from the joint solve and timings; the
   12 px plus row-to-row stage jerks: recovered field error 0.04–0.13 px median, p90 <= 0.56 px, per pass.
 * Check self-test on the real VA026_S4 EDOF: injected channel and plane shifts recovered (p90 <= 0.01 px, integer
   shifts); seam index 1.00 at 0 px, 0.81 at 4 px, 0.21 at 8 px.
+* Real raw strip (`tools/try_strip.py`, VA026_S4 strip 3, rows 20,480–32,768, 9 planes, reference plane 5 of 9),
+  offsets on 48 tissue windows before -> after registration (median / p90, px):
+  470 <-> 528 per plane 3.7–13.4 / 5–36 -> 0.13–1.4 / 0.3–3.8; planes 6–9 vs reference 15–54 / 21–75 -> 0.14–0.78 /
+  0.5–1.6; planes 1–4 (the defocused side) 7–44 / 36–108 -> 1.6–3.6 / 4–16. The defocused side is not yet solved
+  as well as the in-focus side. 390 s for this 12,288-row section on 8 threads of a busy host.
 * Baseline check, existing images: VA026_S4 channel median 3.1 px (p90 10.4), top–bottom planes median 30.6 px,
   seam 0.08; VA029_S1 channel median 2.3 px (p90 20.5), planes 5.6 px, seam 0.92.
 
