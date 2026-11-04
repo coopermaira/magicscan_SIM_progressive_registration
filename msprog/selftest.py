@@ -13,7 +13,7 @@ from . import check as C
 from . import pearson as P
 from .tiffio import TiledReader
 
-SHIFTS = [(0, 2), (3, -4), (-6, 5), (10, 0), (0, -12), (15, 15)]
+SHIFTS = [(0, 2), (3, -4), (-6, 5), (0.5, -1.25), (2.75, 0.4), (10, 0), (0, -12.5), (15, 15)]
 SEAM_SHIFTS = [0, 1, 2, 4, 8]
 
 
