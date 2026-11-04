@@ -137,7 +137,8 @@ def fit_chunks(m, r_min=R_MIN, reject_px=3.0):
     shift when it lies within max(reject_px, 3 x 1.4826 MAD) of its window's offset + stretch model (so local
     non-linear motion such as a stage jerk inside a window survives); otherwise, or when the window cannot be fitted,
     it is dropped (NaN).
-    Returns float32 (n, 7): chunk_row, window, si, sj, dy, dx, window_rms."""
+    Returns float32 (n, 9): chunk_row, window, si, sj, dy, dx, window_rms, kx, ky (the window's stretch:
+    d(dx)/dx and d(dy)/dy, i.e. scale - 1)."""
     out = []
     for c0 in np.unique(m[:, 0]):
         mc = m[m[:, 0] == c0]
@@ -147,16 +148,17 @@ def fit_chunks(m, r_min=R_MIN, reject_px=3.0):
             yy = (w[:, 2] - (NSUB - 1) / 2) * SUB
             xx = (w[:, 3] - (NSUB - 1) / 2) * SUB
             f = fit_window(yy[ok], xx[ok], w[ok, 4], w[ok, 5]) if ok.sum() else None
+            kx = ky = np.nan
             if f is not None:
                 tx, kx, ty, ky, rms, _ = f
                 res = np.hypot(w[:, 4] - (ty + ky * yy), w[:, 5] - (tx + kx * xx))
                 ok &= res <= max(reject_px, 3 * 1.4826 * rms)
             for k in range(len(w)):
                 if f is None or not ok[k]:
-                    out.append([c0, j, w[k, 2], w[k, 3], np.nan, np.nan, np.nan])
+                    out.append([c0, j, w[k, 2], w[k, 3], np.nan, np.nan, np.nan, np.nan, np.nan])
                 else:
-                    out.append([c0, j, w[k, 2], w[k, 3], w[k, 4], w[k, 5], rms])
-    return np.asarray(out, np.float32).reshape(-1, 7)
+                    out.append([c0, j, w[k, 2], w[k, 3], w[k, 4], w[k, 5], rms, kx, ky])
+    return np.asarray(out, np.float32).reshape(-1, 9)
 
 
 def match_window(ref, mov, margin, r4_min=0.15):

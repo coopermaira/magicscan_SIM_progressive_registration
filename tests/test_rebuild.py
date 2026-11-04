@@ -14,6 +14,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import synth  # noqa: E402
 
 
+def test_discover_cartridge_naming():
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import rebuild_edof as RB
+    with tempfile.TemporaryDirectory() as d:
+        a = np.zeros((8, 8), np.uint16)
+        for s, zs in ((0, ("79.900000", "80.100000")), (1, ("80.010000", "80.210000"))):     # z differs per strip
+            for z in zs:
+                for ch in ("470", "528"):
+                    tifffile.imwrite(os.path.join(d, f"V_cartridge1_strip{s}_z{z}_{ch}nm.tiff"), a)
+                    for k in range(3):
+                        tifffile.imwrite(os.path.join(d, f"V_cartridge1_strip{s}_z{z}_{ch}nm_{k}.tiff"), a)
+        tifffile.imwrite(os.path.join(d, "V_cartridge1_strip0_pseudo_color.tiff"), a)
+        open(os.path.join(d, "V_cartridge1_strip2_z80.0_470nm_0.tiff"), "w").close()          # empty file: ignored
+        P = RB.plan(RB.discover(d), "auto")
+        assert sorted(P) == [0, 1], P
+        assert [len(P[s][0]) for s in (0, 1)] == [2, 2] and P[0][1] == "recon"
+        assert RB.plan(RB.discover(d), "phases")[1][1] == "phases"
+
+
 def test_rebuild_and_compare():
     with tempfile.TemporaryDirectory() as d:
         raw = os.path.join(d, "raw")
@@ -42,6 +61,14 @@ def test_rebuild_and_compare():
                             "--out", os.path.join(d, "prev")], capture_output=True, text=True)
         assert r.returncode == 0, r.stderr[-3000:]
         assert any(f.endswith("_crop00.jpg") for f in os.listdir(os.path.join(d, "prev")))
+        os.makedirs(os.path.join(out, "compare"), exist_ok=True)
+        import shutil
+        shutil.copy(os.path.join(d, "cmp", "compare.json"), os.path.join(out, "compare", "compare.json"))
+        r = subprocess.run([sys.executable, os.path.join(REPO, "tools", "summarize_eval.py"), d, "--out",
+                            os.path.join(d, "sum")], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr[-3000:]
+        print(r.stdout)
+        assert "T_S1" in open(os.path.join(d, "sum", "slides.tsv")).read()
 
 
 if __name__ == "__main__":

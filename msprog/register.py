@@ -264,6 +264,17 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
         Mg[e], _ = _scatter([m[e] for m in meas if e in m], ny, nx)
         nconf[f"{E[e][0]}-{E[e][1]}"] = int(np.isfinite(Mg[e, ..., 0]).sum())
     t_meas = time.time() - t0
+    # per-edge statistics before registration: shift size and stretch (the misalignment as acquired)
+    edge_stats = {}
+    for e, (a_, b_, kind) in enumerate(E):
+        blks = [m[e] for m in meas if e in m and len(m[e])]
+        f = np.concatenate(blks) if blks else np.zeros((0, 9), np.float32)
+        f = f[np.isfinite(f[:, 4])]
+        edge_stats[f"{a_}-{b_}"] = dict(kind=kind, before_um=_stats(np.hypot(f[:, 4], f[:, 5]) * MPP),
+                                        before_dy_median_px=round(float(np.median(f[:, 4])), 2) if len(f) else None,
+                                        before_dx_median_px=round(float(np.median(f[:, 5])), 2) if len(f) else None,
+                                        stretch_x_median_pct=round(float(np.nanmedian(f[:, 7])) * 100, 4) if len(f) else None,
+                                        stretch_y_median_pct=round(float(np.nanmedian(f[:, 8])) * 100, 4) if len(f) else None)
 
     # 3. joint solve, 4. clean
     U, closure = _solve(Mg, E, 2 * n, ref)
@@ -283,16 +294,21 @@ def register_strip(ph, pe, ref_idx=None, workers=16, log=print, return_fields=Fa
     vb = blocks[::VERIFY_EVERY] or blocks[:1]
     vmeas = _measure_all(reg, E, H, W, workers, vb)
     resid = {"z": [], "c": []}
+    per_edge = {e: [] for e in range(len(E))}
     for m in vmeas:
         for e, f in m.items():
             g = f[np.isfinite(f[:, 4])]
-            resid[E[e][2]] += list(np.hypot(g[:, 4], g[:, 5]) * MPP)
+            d = list(np.hypot(g[:, 4], g[:, 5]) * MPP)
+            resid[E[e][2]] += d
+            per_edge[e] += d
+    for e, (a_, b_, _) in enumerate(E):
+        edge_stats[f"{a_}-{b_}"]["after_um"] = _stats(per_edge[e])
     rz, rc = _stats(resid["z"]), _stats(resid["c"])
     applied = {k: _stats(np.hypot(fields[2 * k][..., 0], fields[2 * k][..., 1]) * MPP) for k in range(n)}
     chan = {k: _stats(np.hypot(*(fields[2 * k + 1] - fields[2 * k]).transpose(2, 0, 1)) * MPP) for k in range(n)}
     rep = dict(version=VERSION, ref_plane=r, n_planes=n, grid=[int(ny), int(nx)], node_px=P.SUB,
                applied_plane_shift_um=applied, applied_channel_shift_um=chan,
-               measured_nodes_per_edge=nconf,
+               measured_nodes_per_edge=nconf, edges=edge_stats,
                solved_nodes_per_pass={p: int(np.isfinite(U[p, ..., 0]).sum()) for p in range(2 * n)},
                closure_plane_um=_stats(closure["z"] * MPP), closure_channel_um=_stats(closure["c"] * MPP),
                residual_plane_um=rz, residual_channel_um=rc,
