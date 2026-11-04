@@ -31,6 +31,13 @@ def test_discover_cartridge_naming():
         assert sorted(P) == [0, 1], P
         assert [len(P[s][0]) for s in (0, 1)] == [2, 2] and P[0][1] == "recon"
         assert RB.plan(RB.discover(d), "phases")[1][1] == "phases"
+    with tempfile.TemporaryDirectory() as d:                                                 # VA033: loc<N> + strip
+        a = np.zeros((8, 8), np.uint16)
+        for z in (1, 2):
+            for ch in ("470", "528"):
+                for k in range(3):
+                    tifffile.imwrite(os.path.join(d, f"V_Slice2_loc{z}_cartridge1_strip0_{ch}nm_{k}.tiff"), a)
+        assert len(RB.plan(RB.discover(d), "auto")[0][0]) == 2
 
 
 def test_rebuild_and_compare():

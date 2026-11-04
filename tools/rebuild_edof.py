@@ -64,8 +64,8 @@ def discover(d, name_filter=None):
         if not c:
             continue
         st = STRIP_TOK.search(f)
-        if st:                                          # cartridge / strip / z_mm naming (z per strip)
-            z = ZMM.search(f)
+        if st:                                          # cartridge / strip naming; z as _z<mm> or loc<N> (VA033)
+            z = ZMM.search(f) or LOC.search(f)
             if not z:
                 continue
             s, zk = int(st.group(1)), float(z.group(1))
