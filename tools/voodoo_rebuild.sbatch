@@ -1,8 +1,9 @@
 #!/bin/bash
 # Rebuild + compare MagicScan slides on voodoo (CPU only).
 #   cd <repo>; sbatch -o LOGDIR/ms-rebuild-%j.out -e LOGDIR/ms-rebuild-%j.err tools/voodoo_rebuild.sbatch SLIDES_TSV OUT_DIR
-# SLIDES_TSV: image_id <TAB> slice dir under /mnt/arpa-h-data <TAB> optional name filter <TAB> optional extra
-#             rebuild_edof.py arguments (e.g. --no_prefetch for slides with many long planes)
+# SLIDES_TSV: image_id <TAB> slice dir under /mnt/arpa-h-data <TAB> name filter or - <TAB> extra rebuild_edof.py
+#             arguments or - (e.g. --source phases, --no_prefetch). Use "-" for an empty column: bash `read`
+#             merges consecutive tabs, so an empty column would shift the next one into it.
 # Note: docker containers are not inside the SLURM memory limit; keep concurrent jobs within the machine's RAM.
 #SBATCH --job-name=ms-rebuild
 #SBATCH --output=ms-rebuild-%j.out
@@ -32,8 +33,8 @@ while IFS=$'\t' read -r ID DIR FILT EXTRA; do
   [ -z "$ID" ] || [ "${ID:0:1}" = "#" ] && continue
   echo "=== $ID $(date)"
   ARGS=("tools/rebuild_edof.py" "$DIR" --image_id "$ID" --out "$OUT/$ID" --workers 32)
-  [ -n "${FILT:-}" ] && ARGS+=(--name_filter "$FILT")
-  [ -n "${EXTRA:-}" ] && read -r -a XA <<< "$EXTRA" && ARGS+=("${XA[@]}")
+  [ -n "${FILT:-}" ] && [ "$FILT" != "-" ] && ARGS+=(--name_filter "$FILT")
+  [ -n "${EXTRA:-}" ] && [ "$EXTRA" != "-" ] && read -r -a XA <<< "$EXTRA" && ARGS+=("${XA[@]}")
   run "${ARGS[@]}" || { echo "REBUILD FAILED $ID"; continue; }
   A=$(awk -F'\t' '$1=="off"{print $2}' "$OUT/$ID/specs.tsv"); B=$(awk -F'\t' '$1=="pearson"{print $2}' "$OUT/$ID/specs.tsv")
   run edof_align_check.py compare "$A" "$B" --out "$OUT/$ID/compare" --workers 32 || { echo "CHECK FAILED $ID"; continue; }
