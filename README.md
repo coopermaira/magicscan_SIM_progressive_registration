@@ -13,6 +13,10 @@ finished EDOF image is aligned. Both plug into the group's existing builders wit
 
 Matching is Pearson correlation (normalised cross-correlation) everywhere; there is no phase correlation.
 
+**Version for use: tag `v0.1.0`** (`git checkout v0.1.0`). Verified end to end through the real `build_ms.py`
+on olympus (see Validation). The colour-builder hook (`--builder color`) has so far been tested only against a
+stand-in with the same hook points; prefer `--builder fm` until it has been run on real data.
+
 ## Setup
 
 ```bash
@@ -112,6 +116,23 @@ residuals, flags) plus the closure numbers from the joint solve and timings; the
 
 ## Validation so far
 
+* **End to end through the real fm builder** (`build_ms.py` via `build_registered.py --builder fm`, olympus,
+  VA026_S4 strip 3, 9 planes, `--mask threshold`), `edof_align_check.py compare` of the unregistered vs the
+  registered build, same windows:
+
+  | | unregistered | registered |
+  |---|---|---|
+  | 470-528 offset, median / p90 | 5.42 / 8.61 px | 0.17 / 2.43 px |
+  | windows with 470-528 offset > 5 px | 51 % | 7 % |
+  | top-bottom plane offset, median / p90 | 14.8 / 77 px | 2.45 / 39 px |
+  | seam continuity 470 / 528 (1 = seamless) | 0.04 / -0.15 | 0.59 / 0.14 |
+  | sharpness | | +4 % |
+
+  Registration's own check after warping: plane residual 0.23 um median (p90 1.2), channel 0.19 um (p90 0.6).
+  Registration took ~6 min of the strip; the builder's other steps take hours on the busy olympus host.
+* Full slide rebuilt on voodoo (`tools/rebuild_edof.py`, VA026_S6, 8 strips): 470-528 offset 3.24 -> 0.35 px median,
+  12.5 -> 4.5 px p90; seam continuity 470 0.26 -> 0.50, 528 0.04 -> 0.26; sharpness unchanged.
+
 * Synthetic strip (`tests/test_register.py`): 5 planes x 2 channels, blurred outer planes, known smooth fields up to
   12 px plus row-to-row stage jerks: recovered field error 0.04–0.13 px median, p90 <= 0.56 px, per pass.
 * Check self-test on the real VA026_S4 EDOF: injected channel and plane shifts recovered (p90 <= 0.01 px, integer
@@ -125,6 +146,13 @@ residuals, flags) plus the closure numbers from the joint solve and timings; the
   seam 0.08; VA029_S1 channel median 2.3 px (p90 20.5), planes 5.6 px, seam 0.92.
 
 ## Known limits
+
+* Planes far out of focus are registered less well: the top-bottom plane offset keeps a tail (p90 39 px above) and
+  seams improve but do not reach a well-aligned slide's level (0.92 on VA029_S1). Those planes contribute to the
+  EDOF only where they are sharp.
+* The strip-boundary measure of the check does not yet return values on real images (no confident matches).
+* `tools/voodoo_rebuild.sbatch`: docker containers run outside SLURM's memory limit; the script stops its
+  containers when the job is cancelled.
 
 * The fm builder holds a whole strip's planes in memory, and the registration adds one registered copy plus
   per-thread working buffers (~1 GB per thread).
