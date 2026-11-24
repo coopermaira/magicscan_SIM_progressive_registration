@@ -91,6 +91,33 @@ python edof_align_check.py compare $DS:VA026_S4 /sci-it/.../Prostate_VA_MS_SYBR_
 B is measured on A's windows. Prints and saves (`compare.txt`, `compare.json`) every metric for A and B with the
 difference and a verdict (better / same / worse, with small tolerances; sharpness flags B if it lost > 3 %).
 
+## 4. Experiment: z-plane boundaries on E1 tile edges (`--snap e1`)
+
+The EDOF takes each pixel from one focal plane; plane boundaries follow the focus and cross inference tiles, so the
+tile embedder sees them. With `--snap e1` the fm builder also writes `<id>__snapE1`: the same EDOF with each E1 tile
+(256 px @ 0.5 um/px, origin (0,0) of the benchmark image = canvas x 1.4) taking the plane most of its pixels already
+had, so boundaries sit on tile edges and are left to the MIL head. One run gives both arms from the same registered
+planes and plane map; arm B reuses the production strip gains, normalisation, colour anchors and tissue mask, so the
+arms differ only in plane choice (`msprog/snap.py`, hooks in `msprog/launch.py`, `tests/test_snap.py`).
+
+```bash
+python tools/snap_cells.py VA030_S1 VA034_S3 VA026_S5 --n 6 --out cells.tsv     # probe cells, from the E1 labels
+bash tools/run_snap_e1.sh queue.tsv cells.tsv $ROOT 1                             # production recipe + --snap e1
+bash tools/run_snap_checks.sh $ROOT 1 VA030_S1 VA034_S3 VA026_S5                  # all checks below
+```
+
+| check | tool | question |
+|---|---|---|
+| exposure | `snap_eval.py exposure` | share of E1 tiles (and labelled cells) whose production tile holds > 1 plane |
+| identity | `snap_eval.py identity` | arm A equals the dataset image; A and B differ only where snapped |
+| sharpness | `snap_eval.py sharpness` | Tenengrad B / A on the changed tiles (the cost) |
+| probe | `snap_probe.py` | embedding and cell P(cancer) change from a mid-tile boundary vs a whole-tile plane change, a boundary on the tile edge, and a 0.5 px shift (noise floor) |
+| direct | `snap_score.py` | per-cell P(cancer), AUC and log-loss of A vs B with the existing LOCO heads (biased towards A) |
+
+Limits: tiles cut by a strip boundary (~1.6 %) stay two-source; the extractor's cubic kernel lets 1-2 px of the
+neighbouring tile's plane into a tile edge; reference-fill bands of the large-offset slides are not plane choices.
+The fair test of the idea is a full E1 rebuild with heads retrained per arm.
+
 ## Method (`msprog/register.py`)
 
 Per strip of N planes x 2 channels (2N passes):
