@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Pick the 2 mm E1 cells whose registered planes a --snap e1 build saves for the boundary-sensitivity probe.
 
-Per slide: N cancer and N benign cells, drawn at random (seed 0) from the cells with the most patches (the bag
+Per slide: N cancer and N benign cells, drawn at random (seeded per slide and label) from the cells with the most patches (the bag
 width caps num_patches at 256, so fully tiled cells tie; the draw spreads them over the slide), from the slide's own
 LOCO test fold
-(SIM/2_MS_mil/labels/loco/loco_labels_uniform2mm_20x_g40/fold_<case>/labels/coarse_labels_2mm.tsv).
+(SIM/2_MS_mil/labels/loco/loco_labels_e1_heunion_g44/fold_<case>/labels/coarse_labels_2mm.tsv, the label tree the
+mw_e1_* LOCO heads were trained and scored on).
 Chosen before any snapped image exists, so the probe set does not depend on the result.
 
 usage: snap_cells.py VA030_S1 VA034_S3 VA026_S5 --n 6 --out cells.tsv
@@ -13,7 +14,7 @@ import argparse
 import csv
 import random
 
-LABELS = "/sci-it/hosts/olympus/magicscan/SIM/2_MS_mil/labels/loco/loco_labels_uniform2mm_20x_g40"
+LABELS = "/sci-it/hosts/olympus/magicscan/SIM/2_MS_mil/labels/loco/loco_labels_e1_heunion_g44"   # the E1 heads' labels
 
 
 def main():
