@@ -33,7 +33,15 @@ def main():
     ap.add_argument("--gray_dir", default=None, help="color: also write fused grayscale 470/528 + z-map here")
     ap.add_argument("--allow_protected_dataset", action="store_true",
                     help="fm: allow writing into the existing dataset (default: refuse)")
+    ap.add_argument("--snap", choices=["off", "e1"], default="off",
+                    help="fm: also write <id>__snapE1, the same EDOF with plane choices snapped to the E1 tile grid "
+                         "(256 px @ 0.5 um/px), so no inference tile holds a z-plane boundary (msprog/snap.py)")
+    ap.add_argument("--snap_probe_cells", default=None,
+                    help="fm + --snap e1: TSV image_id, col, row, label of 2 mm cells whose registered planes are saved "
+                         "for the boundary-sensitivity probe (_qc/<dataset>/snap/probe/)")
     a = ap.parse_args(own)
+    if a.snap == "e1" and a.builder != "fm":
+        ap.error("--snap e1 is implemented for the fm builder")
     if a.builder == "color" and a.register == "builtin":
         ap.error("the colour builder has no built-in registration; use pearson or off")
     if not bargs:
